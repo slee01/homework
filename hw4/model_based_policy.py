@@ -136,24 +136,20 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 2
         ### YOUR CODE HERE
-        states_array, actions_array, next_states_array, costs = [], [], [], []
-        
-        for k in range(self._num_random_action_selection):
-            states, actions, next_states = [], [], []
-            actions = self._sess.run(tf.random_uniform([self._horizon, self._action_dim], minval=self._action_space_low, maxval=self._action_space_high))
+        costs = tf.zeros([self._num_random_action_selection, 1], tf.float32)
+        states = tf.tile(state_ph, [self._num_random_action_selection, 1])
+        actions = tf.random_uniform([self._num_random_action_selection, self._horizon, self._action_dim],
+                                    minval=self._action_space_low,
+                                    maxval=self._action_space_high,
+                                    dtype=tf.float32)
 
-            state = state_ph
+        for h in range(self._horizon):
+            next_states = self._dynamics_func(states, actions[:,h,:], reuse=True)
+            costs += self._cost_fn(states, actions[:,h,:], next_states)
+            states = next_states
 
-            for h in range(self._horizon):
-                next_state = self._dynamics_func(state, actions[h,:], reuse=True)
-
-
-        # self._horizon
-        # self._num_random_action_selection
-        self._cost_fn(state, action, next_state)
-
-
-        raise NotImplementedError
+        best_action = actions[0,tf.argmax(costs),:]
+        # raise NotImplementedError
 
         return best_action
 
@@ -176,7 +172,7 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 2
         ### YOUR CODE HERE
-        best_action = None
+        best_action = self._setup_action_selection(state_ph)
 
         sess.run(tf.global_variables_initializer())
 
@@ -231,7 +227,8 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 2
         ### YOUR CODE HERE
-        raise NotImplementedError
+        best_action = self._sess.run(self._best_action, feed_dicts={self.state_ph: state})
+        # raise NotImplementedError
 
         assert np.shape(best_action) == (self._action_dim,)
         return best_action
