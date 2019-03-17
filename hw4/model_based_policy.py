@@ -38,7 +38,7 @@ class ModelBasedPolicy(object):
             implementation details:
                 (a) the placeholders should have 2 dimensions,
                     in which the 1st dimension is variable length (i.e., None)
-        """
+        """q
         ### PROBLEM 1
         ### YOUR CODE HERE
         state_ph = tf.placeholder("state", tf.float32, shape=[None, self._state_dim])
@@ -73,7 +73,7 @@ class ModelBasedPolicy(object):
         input = np.concatenate((state, action), axis=1)
 
         delta_state = utils.build_mlp(input_layer=input, output_dim=self._state_dim, scope="dynamics", n_layers=self._nn_layers, reuse=reuse)
-        delta_state = utils.unnormalize(delta_state, self._init_dataset.state_mean, self._init_dataset.state_std)
+        delta_state = utils.unnormalize(delta_state, self._init_dataset.delta_state_mean, self._init_dataset.delta_state_std)
 
         next_state_pred = state + delta_state
 
@@ -145,10 +145,13 @@ class ModelBasedPolicy(object):
 
         for h in range(self._horizon):
             next_states = self._dynamics_func(states, actions[:,h,:], reuse=True)
-            costs += self._cost_fn(states, actions[:,h,:], next_states)
+            cost = self._cost_fn(states, actions[:,h,:], next_states)
+            cost = tf.expand_dims(cost, axis=1)
+            costs = tf.concat([costs, cost], axis=1)
             states = next_states
 
-        best_action = actions[0,tf.argmax(costs),:]
+        cost_sum = tf.reduce_sum(costs, axis=1)
+        best_action = actions[tf.argmax(cost_sum),0,:]
         # raise NotImplementedError
 
         return best_action
@@ -163,11 +166,9 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 1
         ### YOUR CODE HERE
-
         state_ph, action_ph, next_state_ph = self._setup_placeholders()
         next_state_pred = self._dynamics_func(state_ph, action_ph, reuse=False)
         loss, optimizer = self._setup_training(state_ph, next_state_ph, next_state_pred)
-
         # raise NotImplementedError
 
         ### PROBLEM 2
@@ -227,7 +228,7 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 2
         ### YOUR CODE HERE
-        best_action = self._sess.run(self._best_action, feed_dicts={self.state_ph: state})
+        best_action = self._sess.run(self._best_action, feed_dicts={self.state_ph: state[None,:]})
         # raise NotImplementedError
 
         assert np.shape(best_action) == (self._action_dim,)
