@@ -38,12 +38,12 @@ class ModelBasedPolicy(object):
             implementation details:
                 (a) the placeholders should have 2 dimensions,
                     in which the 1st dimension is variable length (i.e., None)
-        """q
+        """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        state_ph = tf.placeholder("state", tf.float32, shape=[None, self._state_dim])
-        action_ph = tf.placeholder("action", tf.float32, shape=[None, self._action_dim])
-        next_state_ph = tf.placeholder("next_state", tf.float32, shape=[None, self._state_dim])
+        state_ph = tf.placeholder(name="state", dtype=tf.float32, shape=[None, self._state_dim])
+        action_ph = tf.placeholder(name="action", dtype=tf.float32, shape=[None, self._action_dim])
+        next_state_ph = tf.placeholder(name="next_state", dtype=tf.float32, shape=[None, self._state_dim])
         # raise NotImplementedError
 
         return state_ph, action_ph, next_state_ph
@@ -68,12 +68,12 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        state = utils.normalize(state, self._init_dataset.state_mean, self._init_dataset.state_std)
-        action = utils.normalize(action, self._init_dataset.action_mean, self._init_dataset.action_std)
-        input = np.concatenate((state, action), axis=1)
+        state_norm = utils.normalize(state, self._init_dataset.state_mean, self._init_dataset.state_std)
+        action_norm = utils.normalize(action, self._init_dataset.action_mean, self._init_dataset.action_std)
+        input_norm = tf.concat((state_norm, action_norm), axis=1)
 
-        delta_state = utils.build_mlp(input_layer=input, output_dim=self._state_dim, scope="dynamics", n_layers=self._nn_layers, reuse=reuse)
-        delta_state = utils.unnormalize(delta_state, self._init_dataset.delta_state_mean, self._init_dataset.delta_state_std)
+        delta_state_norm = utils.build_mlp(input_layer=input_norm, output_dim=self._state_dim, scope="dynamics", n_layers=self._nn_layers, reuse=reuse)
+        delta_state = utils.unnormalize(delta_state_norm, self._init_dataset.delta_state_mean, self._init_dataset.delta_state_std)
 
         next_state_pred = state + delta_state
 
@@ -99,8 +99,8 @@ class ModelBasedPolicy(object):
         """
         ### PROBLEM 1
         ### YOUR CODE HERE
-        actual_state_diff = utils.normalize(next_state_ph - state_ph, self._init_dataset.state_mean, self._init_dataset.state_std)
-        pred_state_diff = utils.normalize(next_state_pred - state_ph, self._init_dataset.state_mean, self._init_dataset.state_std)
+        actual_state_diff = utils.normalize(next_state_ph - state_ph, self._init_dataset.delta_state_mean, self._init_dataset.delta_state_std)
+        pred_state_diff = utils.normalize(next_state_pred - state_ph, self._init_dataset.delta_state_mean, self._init_dataset.delta_state_std)
 
         loss = tf.reduce_mean(tf.square(pred_state_diff - actual_state_diff))
         optimizer = tf.train.AdamOptimizer(learning_rate=self._learning_rate).minimize(loss)
@@ -151,7 +151,7 @@ class ModelBasedPolicy(object):
             states = next_states
 
         cost_sum = tf.reduce_sum(costs, axis=1)
-        best_action = actions[tf.argmax(cost_sum),0,:]
+        best_action = actions[tf.argmin(cost_sum),0,:]
         # raise NotImplementedError
 
         return best_action
@@ -190,7 +190,7 @@ class ModelBasedPolicy(object):
         ### PROBLEM 1
         ### YOUR CODE HERE
         feed_dict={self._state_ph: states, self._action_ph: actions, self._next_state_ph: next_states}
-        loss, _ = self._sess.run([self._loss, self._optimizer], feed_dicts=feed_dict)
+        loss, _ = self._sess.run([self._loss, self._optimizer], feed_dict=feed_dict)
 
         return loss
 
@@ -210,8 +210,8 @@ class ModelBasedPolicy(object):
         ### PROBLEM 1
         ### YOUR CODE HERE
 
-        next_state_pred = self._sess.run([self.next_state_pred], feed_dicts={self._state_ph: state[None,:], self._action_ph: action[None,:]})
-        next_state_pred = next_state_pred.flatten()
+        next_state_pred = self._sess.run([self._next_state_pred], feed_dict={self._state_ph: state[None,:], self._action_ph: action[None,:]})
+        next_state_pred = np.squeeze(next_state_pred)
         # raise NotImplementedError
 
         assert np.shape(next_state_pred) == (self._state_dim,)
@@ -228,7 +228,7 @@ class ModelBasedPolicy(object):
 
         ### PROBLEM 2
         ### YOUR CODE HERE
-        best_action = self._sess.run(self._best_action, feed_dicts={self.state_ph: state[None,:]})
+        best_action = self._sess.run(self._best_action, feed_dict={self._state_ph: state[None,:]})
         # raise NotImplementedError
 
         assert np.shape(best_action) == (self._action_dim,)

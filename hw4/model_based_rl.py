@@ -87,17 +87,9 @@ class ModelBasedRL(object):
         ### YOUR CODE HERE
 
         for epoch in range(self._training_epochs):
-            # loss = 0.0
-            batch_num = np.uint32(len(dataset) / self._training_batch_size)
-
-            for i in range(batch_num):
-                batch_states, batch_actions, batch_next_states, batch_rewards, batch_dones = dataset.random_iterator(self._training_batch_size)
-                loss = self._policy.train_step(states=batch_states, actions=batch_actions, next_states=batch_next_states)
-                # loss = loss + i_loss
+            for state, action, next_state, _, _ in dataset.random_iterator(self._training_batch_size):
+                loss = self._policy.train_step(states=state, actions=action, next_states=next_state)
                 losses.append(loss)
-
-            # loss = loss / batch_num
-            # losses.append(loss)
 
         # raise NotImplementedError
         logger.record_tabular('TrainingLossStart', losses[0])
