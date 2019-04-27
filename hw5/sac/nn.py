@@ -91,13 +91,27 @@ class GaussianPolicy(Network):
         self._init_graph_network(inputs=inputs, outputs=[samples, log_probs])
         super(GaussianPolicy, self).build(input_shape)
 
-    def _squash_correction(self, raw_actions):
+    def _squash_correction(self, raw_actions, stable=True, eps=1e-8):
+        # The formula log(1 - tanh(x)^2) is mathematically equivalent to
+        # 2 * (tf.log(2.0) - x - tf.nn.softplus(-2. * x)), which is numerically more stable
+        # Derivation:
+        #   log(1 - tanh(x)^2)
+        # = log(sech(x)^2)
+        # = 2 * log(sech(x))
+        # = 2 * log(2e^-x / (e^-2x + 1))
+        # = 2 * (log(2) - x - log(e^-2x + 1))
+        # (1)  = 2 * (log(2) - x - softplus(-2x))
+
+        # (2)  = 2 * (log(2) - x - (log(1 + e^2x) - log(e^2x)))
+        # (2)  = 2 * (log(2) + x - softplus(+2x))
+
         ### Problem 2.B
         ### YOUR CODE HERE
-
-        # raise NotImplementedError
-        actions = tf.nn.softplus(tf.tanh(raw_actions))
-        correction = tf.reduce_sum(tf.log(1.0 - tf.square(actions)))
+        if not stable:
+            correction = tf.reduce_sum(tf.log(1.0 - tf.square(tf.tanh(raw_actions)) + eps))
+        else:
+            correction = tf.log(4.) + 2. * (raw_actions - tf.nn.softplus(2. * raw_actions))
+            correction = tf.reduce_sum(correction, axis=1)
 
         return correction
 
