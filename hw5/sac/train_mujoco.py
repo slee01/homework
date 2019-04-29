@@ -26,11 +26,11 @@ def train_SAC(env_name, exp_name, seed, logdir):
         'batch_size': 256,
         'discount': 0.99,
         'learning_rate': 1e-3,
-        'reparameterize': False,
+        'reparameterize': True,
         'tau': 0.01,
         'epoch_length': 1000,
         'n_epochs': 500,
-        'two_qf': False,
+        'two_qf': True,
     }
     sampler_params = {
         'max_episode_length': 1000,
@@ -95,6 +95,7 @@ def train_SAC(env_name, exp_name, seed, logdir):
 
     algorithm = SAC(**algorithm_params)
 
+
     tf_config = tf.ConfigProto(inter_op_parallelism_threads=1, intra_op_parallelism_threads=1)
     tf_config.gpu_options.allow_growth = True  # may need if using GPU
     with tf.Session(config=tf_config):
@@ -105,6 +106,7 @@ def train_SAC(env_name, exp_name, seed, logdir):
             q_function2=q_function2,
             value_function=value_function,
             target_value_function=target_value_function)
+
 
         for epoch in algorithm.train(sampler, n_epochs=algorithm_params.get('n_epochs', 1000)):
             logz.log_tabular('Iteration', epoch)
@@ -135,7 +137,6 @@ def main():
 
     for e in range(args.n_experiments):
         seed = args.seed + 10*e
-        print('Running experiment with seed %d'%seed)
 
         def train_func():
             train_SAC(
