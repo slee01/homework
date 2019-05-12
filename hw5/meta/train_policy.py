@@ -52,7 +52,7 @@ def build_mlp(x, output_size, scope, n_layers, size, activation=tf.tanh, output_
     """
     i = 0
     for i in range(n_layers):
-        x = tf.layers.dense(inputs=x,units=size, activation=activation, name='fc{}'.format(i), kernel_regularizer=regularizer, bias_regularizer=regularizer)
+        x = tf.layers.dense(inputs=x, units=size, activation=activation, name='fc{}'.format(i), kernel_regularizer=regularizer, bias_regularizer=regularizer)
 
     x = tf.layers.dense(inputs=x, units=output_size, activation=output_activation, name='fc{}'.format(i + 1), kernel_regularizer=regularizer, bias_regularizer=regularizer)
     return x
@@ -74,7 +74,27 @@ def build_rnn(x, h, output_size, scope, n_layers, size, activation=tf.tanh, outp
     #====================================================================================#
     #                           ----------PROBLEM 2----------
     #====================================================================================#
-    # YOUR CODE HERE
+    # YOUR CODE
+    eb_x = build_mlp(x=x,
+                     output_size=size,
+                     scope=scope,
+                     n_layers=n_layers,
+                     size=size,
+                     activation=activation,
+                     output_activation=activation,
+                     # output_activation=output_activation,
+                     regularizer=regularizer)
+
+    GRU = tf.keras.layers.GRU(units=output_size, #GRU units: positive integer, dimensionality of the output space
+                              activation=activation,
+                              return_sequences=False,
+                              return_state=True)
+    output_x, h = GRU(eb_x, h)
+
+    return output_x, h
+
+
+
 
 def build_policy(x, h, output_size, scope, n_layers, size, gru_size, recurrent=True, activation=tf.tanh, output_activation=None):
     """
@@ -168,6 +188,7 @@ class Agent(object):
         self.animate = sample_trajectory_args['animate']
         self.max_path_length = sample_trajectory_args['max_path_length']
         self.min_timesteps_per_batch = sample_trajectory_args['min_timesteps_per_batch']
+        self.grain_size = sample_trajectory_args['grain_size']
 
         self.gamma = estimate_return_args['gamma']
         self.nn_critic = estimate_return_args['nn_critic']
@@ -228,7 +249,17 @@ class Agent(object):
 
         """
         # ac_dim * 2 because we predict both mean and std
-        sy_policy_params, sy_hidden = build_policy(sy_ob_no, sy_hidden, self.ac_dim*2, self.scope, n_layers=self.n_layers, size=self.size, gru_size=self.gru_size, recurrent=self.recurrent)
+        sy_policy_params, sy_hidden = build_policy(
+            sy_ob_no,
+            sy_hidden,
+            self.ac_dim*2,
+            self.scope,
+            n_layers=self.n_layers,
+            size=self.size,
+            gru_size=self.gru_size,
+            recurrent=self.recurrent
+        )
+
         return (sy_policy_params, sy_hidden)
 
     def sample_action(self, policy_parameters):
@@ -355,16 +386,16 @@ class Agent(object):
             animate_this_episode: if True then render
             val: whether this is training or evaluation
         """
-        env.reset_task(is_evaluation=is_evaluation)
+        env.reset_task(is_evaluation=is_evaluation, grain_size=self.grain_size)
         stats = []
         #====================================================================================#
         #                           ----------PROBLEM 1----------
         #====================================================================================#
-        ep_steps = 0
-        steps = 0
+        ep_steps = 0 # DO NOT include RESET step
+        steps = 0 # include RESET step
 
         num_samples = max(self.history, self.max_path_length + 1)
-        meta_obs = np.zeros((num_samples + self.history + 1, self.meta_ob_dim))
+        meta_obs = np.zeros((num_samples + self.history + 1, self.meta_ob_dim)) # Clopped meta_obs is added to Buffer
         rewards = []
 
         while True:
@@ -377,27 +408,33 @@ class Agent(object):
                 # first meta ob has only the observation
                 # set a, r, d to zero, construct first meta observation in meta_obs
                 # YOUR CODE HERE
-
+                meta_obs[ep_steps + self.history - 1, :self.ob_dim] = ob
                 steps += 1
 
             # index into the meta_obs array to get the window that ends with the current timestep
             # please name the windowed observation `in_` for compatibilty with the code that adds to the replay buffer (lines 418, 420)
             # YOUR CODE HERE
-
+            in_ = meta_obs[ep_steps:ep_steps+self.history, :]
+            in_ = in_[np.newaxis, :, :]
             hidden = np.zeros((1, self.gru_size), dtype=np.float32)
 
             # get action from the policy
             # YOUR CODE HERE
+            ac = self.sess.run(self.sy_sampled_ac, feed_dict={self.sy_ob_no: in_, self.sy_hidden: hidden})[0] # ac.shape = (1, 2) ==> ac[0] ==> (2, )
 
             # step the environment
             # YOUR CODE HERE
-
+            next_ob, rew, done, _ = env.step(ac)
             ep_steps += 1
 
             done = bool(done) or ep_steps == self.max_path_length
             # construct the meta-observation and add it to meta_obs
             # YOUR CODE HERE
 
+            assert next_ob.shape == (self.ob_dim, ), "Observation have to shape (self.ob_dim, )."
+            assert ac.shape == (self.ac_dim, )
+
+            meta_obs[ep_steps + self.history - 1, :] = np.concatenate((next_ob, ac, [rew], [int(done)]), axis=0)
             rewards.append(rew)
             steps += 1
 
@@ -599,6 +636,7 @@ def train_PG(
         num_tasks,
         l2reg,
         recurrent,
+        grain_size
         ):
 
     start = time.time()
@@ -616,7 +654,7 @@ def train_PG(
     envs = {'pm': PointEnv,
             'pm-obs': ObservedPointEnv,
             }
-    env = envs[env_name](num_tasks)
+    env = envs[env_name](num_tasks, grain_size=grain_size)
 
     # Set random seeds
     tf.set_random_seed(seed)
@@ -653,6 +691,7 @@ def train_PG(
         'animate': animate,
         'max_path_length': max_path_length,
         'min_timesteps_per_batch': min_timesteps_per_batch,
+        'grain_size': grain_size
     }
 
     estimate_return_args = {
@@ -689,7 +728,7 @@ def train_PG(
 
     total_timesteps = 0
     for itr in range(n_iter):
-        # for PPO: flush the replay buffer!
+        # for PPO: flush the replay buffer!(set buffer to empty)
         ppo_buffer.flush()
 
         # sample trajectories to fill agent's replay buffer
@@ -705,8 +744,10 @@ def train_PG(
         # TODO: should move inside the agent probably
         data = agent.replay_buffer.all_batch()
         ob_no, ac_na, re_n, hidden, masks = unpack_sample(data)
+
         fixed_log_probs = agent.sess.run(agent.sy_lp_n,
             feed_dict={agent.sy_ob_no: ob_no, agent.sy_hidden: hidden, agent.sy_ac_na: ac_na})
+
         q_n, adv_n = agent.estimate_return(ob_no, re_n, hidden, masks)
 
         ppo_buffer.add_samples(fixed_log_probs, adv_n, q_n)
@@ -788,6 +829,7 @@ def main():
     parser.add_argument('--history', '-ho', type=int, default=1)
     parser.add_argument('--l2reg', '-reg', action='store_true')
     parser.add_argument('--recurrent', '-rec', action='store_true')
+    parser.add_argument('--grain_size', '-gs', type=int, default=1)
     args = parser.parse_args()
 
     if not(os.path.exists('data')):
@@ -829,6 +871,7 @@ def main():
                 num_tasks=args.num_tasks,
                 l2reg=args.l2reg,
                 recurrent=args.recurrent,
+                grain_size=args.grain_size
                 )
         # # Awkward hacky process runs, because Tensorflow does not like
         # # repeatedly calling train_PG in the same thread.
