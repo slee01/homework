@@ -26,7 +26,8 @@ class ObservedPointEnv(Env):
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(2 + num_tasks,))
         self.action_space = spaces.Box(low=-0.1, high=0.1, shape=(2,))
 
-    def reset_task(self, is_evaluation=False):
+    def reset_task(self, is_evaluation=False, grain_size=None):
+        # add grain_size to input for compatibility
         # for evaluation, cycle deterministically through all tasks
         if is_evaluation:
             self.task_idx = (self.task_idx + 1) % len(self.tasks)
